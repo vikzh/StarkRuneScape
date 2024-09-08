@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { VerificationLevel, IDKitWidget, useIDKit } from "@worldcoin/idkit";
 import type { ISuccessResult } from "@worldcoin/idkit";
 import { verify } from "./actions/verify";
-import { checkBalance, deployAccount, deploySystemAccount, getResourceBalance, produceResource } from "./actions/deployAccount";
+import { checkBalance, deployAccount, deploySystemAccount, getResourceBalance, produceResource, produceStick, catchFish, cookFish } from "./actions/actions";
 import { motion } from 'framer-motion';
 
 export default function Home() {
@@ -18,25 +18,38 @@ export default function Home() {
   const [isProducing, setIsProducing] = useState(false);
   const [treesCut, setTreesCut] = useState<string | null>(null);
   const [produceStatus, setProduceStatus] = useState('');
-  const woodAddress = '0x05c911152dbfc068e93892fd795f51b4c0fc437f4ea93d5d913edb892fb2cb01';
+  const [stickBalance, setStickBalance] = useState<string | null>(null);
+  const [woodBalance, setWoodBalance] = useState<string | null>(null);
+  const [fishBalance, setFishBalance] = useState<string | null>(null);
+  const [cookedFishBalance, setCookedFishBalance] = useState<string | null>(null);
 
-  const fetchTreesCut = async () => {
-    if (nullifierHash && woodAddress) {
-      const balance = await getResourceBalance(woodAddress, nullifierHash);
-      setTreesCut(balance.toString());
+  const woodAddress = '0x05c911152dbfc068e93892fd795f51b4c0fc437f4ea93d5d913edb892fb2cb01';
+  const stickAddress = "0x20d5f0fe4166124218dc5cd4624cbec3adafdd55909ab4fca9ba5374f56b031";
+  const fishAddress = "0x34fced2cfc380b72ef04f51253023259fd805cd428edda73866aaef6ab0904c";
+  const cookedFishAddress = "0x21d87189985671ca4b9979d782681b90ab69fe29381eec262a0adf9dcf4010b";
+
+  const fetchResources = async () => {
+    if (nullifierHash) {
+      const woodBalance = await getResourceBalance(woodAddress, nullifierHash);
+      setWoodBalance(woodBalance.toString());
+      
+      const stickBalance = await getResourceBalance(stickAddress, nullifierHash);
+      setStickBalance(stickBalance.toString());
+
+      const fishBalance = await getResourceBalance(fishAddress, nullifierHash);
+      setFishBalance(fishBalance.toString());
+
+      const cookedFishBalance = await getResourceBalance(cookedFishAddress, nullifierHash);
+      setCookedFishBalance(cookedFishBalance.toString());
     }
   };
 
   useEffect(() => {
-    const fetchTreesCut = async () => {
-      if (nullifierHash) {
-        const balance = await getResourceBalance(woodAddress, nullifierHash);
-        setTreesCut(balance.toString());
-      }
-    };
-
-    fetchTreesCut();
+    if (nullifierHash) {
+      fetchResources();
+    }
   }, [nullifierHash]);
+
   const lastCompletionTime = useRef(0);
 
   const app_id = process.env.NEXT_PUBLIC_WLD_APP_ID as `app_${string}`;
@@ -102,24 +115,36 @@ export default function Home() {
 
   const treeTypes = [
     { name: "Normal Tree", xp: 10, time: 3, level: 1 },
-    { name: "Oak Tree", xp: 20, time: 5, level: 10 },
-    { name: "Maple Tree", xp: 30, time: 7, level: 25 },
-    { name: "Redwood Tree", xp: 50, time: 10, level: 35 },
+    { name: "Stick", xp: 15, time: 4, level: 1, woodRequired: 2 },
+    { name: "Fish", xp: 20, time: 5, level: 1, stickRequired: 1 },
+    { name: "Cooked Fish", xp: 25, time: 6, level: 1, woodRequired: 5, fishRequired: 1 },
   ];
 
   const handleTreeClick = async (index: number) => {
-    if (index === 0 && !isProducing) {
-      setIsProducing(true);
-      setActiveTree(index);
-      try {
-        await handleProduceResource();
-        setTreesCut(prev => (parseInt(prev ?? '0') + 1).toString());
-      } catch (error) {
-        console.error('Error producing resource:', error);
-      } finally {
-        setIsProducing(false);
-        setActiveTree(null);
+    if (isProducing) return;
+    setIsProducing(true);
+    setActiveTree(index);
+    try {
+      switch (index) {
+        case 0:
+          await handleProduceResource();
+          break;
+        case 1:
+          if (Number(woodBalance) >= 2) await handleProduceStick();
+          break;
+        case 2:
+          if (Number(stickBalance) >= 1) await handleProduceFish();
+          break;
+        case 3:
+          if (Number(woodBalance) >= 5 && Number(fishBalance) >= 1) await handleCookFish();
+          break;
       }
+    } catch (error) {
+      console.error(`Error producing resource: ${error}`);
+      setProduceStatus(`Error producing resource: ${error}`);
+    } finally {
+      setIsProducing(false);
+      setActiveTree(null);
     }
   };
 
@@ -132,10 +157,52 @@ export default function Home() {
     try {
       const txHash = await produceResource(woodAddress, nullifierHash);
       setProduceStatus(`Resource produced successfully. Transaction hash: ${txHash}`);
-      await fetchTreesCut();
+      await fetchResources();
     } catch (error) {
       setProduceStatus(`Error producing resource: ${error}`);
       throw error;
+    }
+  };
+
+  const handleProduceStick = async () => {
+    if (!nullifierHash) {
+      console.error('No nullifier hash found');
+      return;
+    }
+    try {
+      const txHash = await produceStick(nullifierHash);
+      setProduceStatus(`Stick produced successfully! Transaction hash: ${txHash}`);
+      await fetchResources(); // Refresh both wood and stick balances
+    } catch (error) {
+      setProduceStatus(`Error producing stick: ${error}`);
+    }
+  };
+
+  const handleProduceFish = async () => {
+    if (!nullifierHash) {
+      console.error('No nullifier hash found');
+      return;
+    }
+    try {
+      const txHash = await catchFish(nullifierHash);
+      setProduceStatus(`Fish caught successfully! Transaction hash: ${txHash}`);
+      await fetchResources(); // Refresh all resource balances
+    } catch (error) {
+      setProduceStatus(`Error catching fish: ${error}`);
+    }
+  };
+
+  const handleCookFish = async () => {
+    if (!nullifierHash) {
+      console.error('No nullifier hash found');
+      return;
+    }
+    try {
+      const txHash = await cookFish(nullifierHash);
+      setProduceStatus(`Fish cooked successfully! Transaction hash: ${txHash}`);
+      await fetchResources(); // Refresh all resource balances
+    } catch (error) {
+      setProduceStatus(`Error cooking fish: ${error}`);
     }
   };
 
@@ -145,7 +212,8 @@ export default function Home() {
       duration: 0.5,
       repeat: Infinity,
       ease: "easeInOut"
-    }
+    },
+    transformOrigin: "center center" // This ensures the scaling happens from the center
   };
 
   return (
@@ -168,6 +236,21 @@ export default function Home() {
           )}
         </div>
       </header>
+
+      {/* New Resource Balance Panel */}
+      {accountAddress && (
+        <div className="bg-gray-700 text-white p-4">
+          <div className="max-w-4xl mx-auto flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Resource Balances:</h2>
+            <div className="flex space-x-4">
+              <span>🪵 Wood: {woodBalance || '0'}</span>
+              <span>🥢 Sticks: {stickBalance || '0'}</span>
+              <span>🐟 Fish: {fishBalance || '0'}</span>
+              <span>🍣 Cooked Fish: {cookedFishBalance || '0'}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Existing content */}
       <main className="flex-grow p-4 bg-gray-900">
@@ -231,35 +314,49 @@ export default function Home() {
                   className={`
                     bg-gray-800 p-4 rounded-lg text-white cursor-pointer
                     transition-colors duration-300 ease-in-out
-                    ${index === 0 ? 'hover:bg-green-600' : 'opacity-70'}
+                    hover:bg-green-600
                     ${activeTree === index ? 'bg-green-600' : ''}
-                    ${isProducing && index === 0 ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${isProducing ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${index === 1 && Number(woodBalance) < 2 ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${index === 2 && Number(stickBalance) < 1 ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${index === 3 && (Number(woodBalance) < 5 || Number(fishBalance) < 1) ? 'opacity-50 cursor-not-allowed' : ''}
                   `}
                   onClick={() => handleTreeClick(index)}
                 >
                   <h3 className="text-xl font-bold mb-2">
-                    {index === 0 ? `Cut ${tree.name}` : 'Locked'}
+                    {index === 0 ? 'Cut' : index === 1 ? 'Craft' : index === 2 ? 'Catch' : 'Cook'} {tree.name}
                   </h3>
-                  {index === 0 ? (
-                    <>
-                      <p>{tree.xp} Skill XP / {tree.time} seconds</p>
-                      <motion.div 
-                        className="text-4xl my-2"
-                        animate={isProducing && activeTree === index ? pulseAnimation : {}}
-                      >
-                        🌳
-                      </motion.div>
-                      <div className="flex justify-between items-center">
-                        <span>🏆 1</span>
-                        <span>{treesCut} / 100</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-4xl my-2 opacity-50">🌳</div>
-                      <div className="bg-red-500 h-1 rounded-full mt-2"></div>
-                      <p className="mt-2">Level {tree.level}</p>
-                    </>
+                  <p>{tree.xp} Skill XP / {tree.time} seconds</p>
+                  <motion.div 
+                    className="text-4xl my-2"
+                    animate={isProducing && activeTree === index ? pulseAnimation : {}}
+                  >
+                    {index === 0 ? '🌳' : index === 1 ? '🌿🥢' : index === 2 ? '🎣' : '🍳🐟'}
+                  </motion.div>
+                  {index === 1 && (
+                    <div className="flex justify-between items-center">
+                      <span>{tree.woodRequired} wood required</span>
+                      {Number(woodBalance) < 2 && (
+                        <span className="text-red-500">Not enough wood</span>
+                      )}
+                    </div>
+                  )}
+                  {index === 2 && (
+                    <div className="flex justify-between items-center">
+                      <span>{tree.stickRequired} stick required</span>
+                      {Number(stickBalance) < 1 && (
+                        <span className="text-red-500">Not enough sticks</span>
+                      )}
+                    </div>
+                  )}
+                  {index === 3 && (
+                    <div className="flex flex-col">
+                      <span>{tree.woodRequired} wood required</span>
+                      <span>{tree.fishRequired} fish required</span>
+                      {(Number(woodBalance) < 5 || Number(fishBalance) < 1) && (
+                        <span className="text-red-500">Not enough resources</span>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
@@ -272,9 +369,7 @@ export default function Home() {
           <div className="w-full max-w-4xl mt-8 mx-auto">
             <div className="bg-gray-800 p-4 rounded-lg">
               <h2 className="text-xl font-bold text-white mb-4">Produce Resource</h2>
-              <div className="flex items-center space-x-4">
-                <p className="text-white">Resource Address: 0x05c911152dbfc068e93892fd795f51b4c0fc437f4ea93d5d913edb892fb2cb01</p>
-              </div>
+
               {produceStatus && (
                 <p className="mt-4 text-white">{produceStatus}</p>
               )}
