@@ -80,9 +80,7 @@ export default function Home() {
     const hash = result.nullifier_hash;
     localStorage.setItem('nullifierHash', hash);
     setNullifierHash(hash);
-    window.alert(
-      "Successfully verified with World ID! Your nullifier hash is: " + hash
-    );
+
   };
 
   const handleProof = async (result: ISuccessResult) => {
